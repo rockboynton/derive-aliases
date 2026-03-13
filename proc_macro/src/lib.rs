@@ -971,32 +971,33 @@ pub fn derive(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         // No derive aliases used.
         // Just pass all derives to the standard library's
-        TokenStream::from_iter(
-            [
-                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
-                TokenTree::Group(Group::new(
-                    Delimiter::Bracket,
-                    TokenStream::from_iter([
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Ident(Ident::new("core", Span::call_site())),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Ident(Ident::new("prelude", Span::call_site())),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Ident(Ident::new("v1", Span::call_site())),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                        TokenTree::Ident(Ident::new("derive", Span::call_site())),
-                        TokenTree::Group(regular_derives.inside_of(Delimiter::Parenthesis)),
-                    ]),
-                )),
-            ]
-            .into_iter()
-            .chain(item),
-        )
+        TokenStream::from_iter(derive_attr(regular_derives.0).into_iter().chain(item))
     }
+}
+
+/// `#[::core::prelude::v1::derive(derives)]`
+fn derive_attr(derives: TokenStream) -> [TokenTree; 2] {
+    [
+        TokenTree::Punct(Punct::new('#', Spacing::Joint)),
+        TokenTree::Group(Group::new(
+            Delimiter::Bracket,
+            TokenStream::from_iter([
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("core", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("prelude", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("v1", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("derive", Span::call_site())),
+                TokenTree::Group(Group::new(Delimiter::Parenthesis, derives)),
+            ]),
+        )),
+    ]
 }
 
 /// A single entity that appears on the RHS of an alias declaration
@@ -1277,4 +1278,39 @@ struct Example;{}{uses}
 ```",
         if uses.is_empty() { "" } else { "\n\n" },
     )
+}
+
+/// Inserts `#[derive(...)]` after any existing attributes but before the
+/// item keyword. Emitting the item from a proc macro (instead of directly
+/// from `macro_rules!`) ensures clippy lints and `#[expect(...)]` work.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn __internal_apply_derives(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let mut result = Vec::new();
+    let mut iter = item.into_iter().peekable();
+
+    // Forward all leading outer attributes (#[...])
+    loop {
+        let is_hash = iter
+            .peek()
+            .is_some_and(|tt| matches!(tt, TokenTree::Punct(p) if p.as_char() == '#'));
+        if !is_hash {
+            break;
+        }
+        result.push(iter.next().unwrap()); // #
+        if iter
+            .peek()
+            .is_some_and(|tt| matches!(tt, TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket))
+        {
+            result.push(iter.next().unwrap()); // [...]
+        }
+    }
+
+    // Insert #[::core::prelude::v1::derive(attr)]
+    result.extend(derive_attr(attr));
+
+    // Emit remaining tokens (keyword + body)
+    result.extend(iter);
+
+    TokenStream::from_iter(result)
 }

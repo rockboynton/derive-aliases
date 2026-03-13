@@ -691,14 +691,15 @@ macro_rules! __internal_derive_aliases_new_alias {
                         [ $_ deduplicated:path ],
                     )*]
                 ) => {
-                    $_(#[$_($_ meta)*])*
-
                     // This derive is applied as the last attribute.
                     // This NEEDS to happen otherwise we will run into derive
                     // helper attribute name resolution errors:
                     //
                     // https://github.com/nik-rev/derive-aliases/issues/4
-                    #[::core::prelude::v1::derive(
+                    //
+                    // We use a proc macro to emit the item so that clippy
+                    // lints (and #[expect(...)]) work on the item.
+                    #[::derive_aliases::__internal_apply_derives(
                         // All derives that did not come from an expansion
                         $_(
                             $_ regular_derives
@@ -712,6 +713,8 @@ macro_rules! __internal_derive_aliases_new_alias {
                             $($derives)*,
                         )*
                     )]
+
+                    $_(#[$_($_ meta)*])*
 
                     // the item we are applying the derives to
                     $_ kw $_ ($_ item) *
@@ -900,5 +903,7 @@ macro_rules! __internal_derive_aliases_new_alias {
     }
 }
 
+#[doc(hidden)]
+pub use derive_aliases_proc_macro::__internal_apply_derives;
 #[doc(hidden)]
 pub use derive_aliases_proc_macro::__internal_derive_aliases_new_alias_with_externs;
