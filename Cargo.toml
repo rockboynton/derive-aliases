@@ -15,7 +15,7 @@ license.workspace = true
 derive_aliases_proc_macro = { path = "proc_macro", version = "0.4", features = ["show"] }
 
 [workspace]
-members = [".", "proc_macro"]
+members = [".", "proc_macro", "tests/test_derive"]
 
 [workspace.package]
 version = "0.4.9"
@@ -33,3 +33,4 @@ zerocopy = { version = "0.8", features = ["derive"] }
 trybuild = "1.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_with = "3.14.1"
+test_derive = { path = "tests/test_derive" }

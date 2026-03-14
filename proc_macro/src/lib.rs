@@ -971,12 +971,17 @@ pub fn derive(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         // No derive aliases used.
         // Just pass all derives to the standard library's
-        TokenStream::from_iter(derive_attr(regular_derives.0).into_iter().chain(item))
+        let mut item = item.into_iter().peekable();
+        let span = item.peek().map_or(Span::call_site(), |tt| tt.span());
+        TokenStream::from_iter(derive_attr(regular_derives.0, span).into_iter().chain(item))
     }
 }
 
 /// `#[::core::prelude::v1::derive(derives)]`
-fn derive_attr(derives: TokenStream) -> [TokenTree; 2] {
+///
+/// `span` should come from the user's original tokens so that inner
+/// derive macros get the correct hygiene context.
+fn derive_attr(derives: TokenStream, span: Span) -> [TokenTree; 2] {
     [
         TokenTree::Punct(Punct::new('#', Spacing::Joint)),
         TokenTree::Group(Group::new(
@@ -984,16 +989,16 @@ fn derive_attr(derives: TokenStream) -> [TokenTree; 2] {
             TokenStream::from_iter([
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                TokenTree::Ident(Ident::new("core", Span::call_site())),
+                TokenTree::Ident(Ident::new("core", span)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                TokenTree::Ident(Ident::new("prelude", Span::call_site())),
+                TokenTree::Ident(Ident::new("prelude", span)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                TokenTree::Ident(Ident::new("v1", Span::call_site())),
+                TokenTree::Ident(Ident::new("v1", span)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
                 TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-                TokenTree::Ident(Ident::new("derive", Span::call_site())),
+                TokenTree::Ident(Ident::new("derive", span)),
                 TokenTree::Group(Group::new(Delimiter::Parenthesis, derives)),
             ]),
         )),
@@ -1307,7 +1312,8 @@ pub fn __internal_apply_derives(attr: TokenStream, item: TokenStream) -> TokenSt
     }
 
     // Insert #[::core::prelude::v1::derive(attr)]
-    result.extend(derive_attr(attr));
+    let span = iter.peek().map_or(Span::call_site(), |tt| tt.span());
+    result.extend(derive_attr(attr, span));
 
     // Emit remaining tokens (keyword + body)
     result.extend(iter);
