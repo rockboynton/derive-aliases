@@ -669,18 +669,17 @@ macro_rules! __internal_derive_aliases_new_alias {
                 // Now that we've removed the traits we want to add, Add them.
                 // This guarantees there is NO duplicate of them here
                 //
-                // Copy! { ? [Debug,][struct Foo;] [] [[Ord], [PartialOrd], [PartialEq],] }
+                // Copy! { ? [Debug,] [struct Foo;] [] [[Ord], [PartialOrd], [PartialEq],] }
                 (?
                     [
                         $_($_ regular_derives:tt)*
                     ]
 
-                    [
-                        $_(#[$_($_ meta:tt)*])*
-                        // $kw is either a `struct`, `enum` or `union`. Needed
-                        // to dis-ambiguate
-                        $_ kw:ident $_($_ item:tt)*
-                    ]
+                    // The item unwrapped from its bracket group, captured
+                    // as opaque $($item:tt)* — NOT destructured into
+                    // $(#[$($meta:tt)*])* $kw:ident ... which would apply
+                    // definition-site hygiene to $kw:ident and corrupt spans.
+                    [$_($_ item:tt)*]
 
                     // FINISHED = processed all derives, none left
                     []
@@ -691,14 +690,10 @@ macro_rules! __internal_derive_aliases_new_alias {
                         [ $_ deduplicated:path ],
                     )*]
                 ) => {
-                    // This derive is applied as the last attribute.
-                    // This NEEDS to happen otherwise we will run into derive
-                    // helper attribute name resolution errors:
-                    //
-                    // https://github.com/nik-rev/derive-aliases/issues/4
-                    //
-                    // We use a proc macro to emit the item so that clippy
-                    // lints (and #[expect(...)]) work on the item.
+                    // The __internal_apply_derives attribute proc macro
+                    // inserts #[derive] as the last attribute before the
+                    // item keyword, which is required for helper attribute
+                    // name resolution (issue #4).
                     #[::derive_aliases::__internal_apply_derives(
                         // All derives that did not come from an expansion
                         $_(
@@ -713,11 +708,8 @@ macro_rules! __internal_derive_aliases_new_alias {
                             $($derives)*,
                         )*
                     )]
-
-                    $_(#[$_($_ meta)*])*
-
-                    // the item we are applying the derives to
-                    $_ kw $_ ($_ item) *
+                    // The item with original spans — no $kw:ident destructuring
+                    $_($_ item)*
                 };
 
                 // Remove each derive from the set
