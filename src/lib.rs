@@ -691,8 +691,9 @@ macro_rules! __internal_derive_aliases_new_alias {
                     )*]
                 ) => {
                     // The __internal_apply_derives attribute proc macro
-                    // inserts #[derive] as the last attribute before the
-                    // item keyword, which is required for helper attribute
+                    // partitions attributes: #[derive_aliases::derive(...)]
+                    // attrs go before #[derive], all others go after.
+                    // This ordering is required for helper attribute
                     // name resolution (issue #4).
                     #[::derive_aliases::__internal_apply_derives(
                         // All derives that did not come from an expansion

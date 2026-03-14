@@ -4,8 +4,7 @@ use crate::tokens::IntoTokens;
 use crate::tokens::PathSeparator;
 use proc_macro::{Delimiter, Group, Ident, Punct, Span, TokenStream, TokenTree};
 use proc_macro::{Literal, Spacing};
-use std::collections::HashSet;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use tokens::Path;
 use tokens::Tokens;
 use tokens::TokensIter;
@@ -43,7 +42,6 @@ See the [crate-level](https://docs.rs/derive_aliases/latest/derive_aliases) docu
 //
 // ---
 #[cfg_attr(not(feature = "show"), doc(hidden))]
-#[allow(unused_assignments)]
 #[proc_macro]
 pub fn define(tts: TokenStream) -> TokenStream {
     // First, let's create a Nested Alias Map:
@@ -1285,42 +1283,74 @@ struct Example;{}{uses}
     )
 }
 
-/// Inserts `#[derive(...)]` after any existing attributes but before the
-/// item keyword. The derive MUST be the last attribute for helper attribute
-/// name resolution to work (e.g., `#[serde(...)]` requires `#[derive(Serialize)]`
-/// to appear after `#[derive_aliases::derive]` attributes).
+/// Inserts `#[derive(...)]` into the item's attribute list.
+///
+/// Only `#[derive_aliases::derive(...)]` attributes are placed before
+/// `#[derive]` (they need to run as attribute macros first). All other
+/// attributes (derive helpers like `#[linearize(const)]`, lint attrs like
+/// `#[expect(...)]`, etc.) are placed after `#[derive]` so derive helper
+/// attributes are properly recognized.
 ///
 /// Emitting the item from a proc macro (instead of directly from
 /// `macro_rules!`) ensures clippy lints and `#[expect(...)]` work.
 #[doc(hidden)]
 #[proc_macro_attribute]
 pub fn __internal_apply_derives(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let mut result = Vec::new();
+    let mut before_derive = Vec::new();
+    let mut after_derive = Vec::new();
     let mut iter = item.into_iter().peekable();
 
-    // Forward all leading outer attributes (#[...])
-    loop {
-        let is_hash = iter
-            .peek()
-            .is_some_and(|tt| matches!(tt, TokenTree::Punct(p) if p.as_char() == '#'));
-        if !is_hash {
+    // Partition attributes: derive_aliases::derive goes before #[derive],
+    // everything else goes after.
+    while let Some(tt) = iter.peek() {
+        if !matches!(tt, TokenTree::Punct(p) if p.as_char() == '#') {
             break;
         }
-        result.push(iter.next().unwrap()); // #
-        if iter
+        let hash = iter.next().unwrap(); // #
+        let bracket = if iter
             .peek()
             .is_some_and(|tt| matches!(tt, TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket))
         {
-            result.push(iter.next().unwrap()); // [...]
+            iter.next().unwrap() // [...]
+        } else {
+            after_derive.push(hash);
+            continue;
+        };
+
+        if is_derive_aliases_attr(&bracket) {
+            before_derive.push(hash);
+            before_derive.push(bracket);
+        } else {
+            after_derive.push(hash);
+            after_derive.push(bracket);
         }
     }
 
-    // Insert #[::core::prelude::v1::derive(attr)]
+    // Emit: derive_aliases attrs → #[derive(...)] → other attrs → keyword + body
     let span = iter.peek().map_or(Span::call_site(), |tt| tt.span());
+    let mut result = before_derive;
     result.extend(derive_attr(attr, span));
-
-    // Emit remaining tokens (keyword + body)
+    result.extend(after_derive);
     result.extend(iter);
 
     TokenStream::from_iter(result)
+}
+
+/// Check if an attribute bracket group is `[derive_aliases::derive(...)]`.
+fn is_derive_aliases_attr(bracket: &TokenTree) -> bool {
+    let TokenTree::Group(g) = bracket else {
+        return false;
+    };
+    let mut iter = g.stream().into_iter().peekable();
+    // Skip leading `::` if present
+    if matches!(iter.peek(), Some(TokenTree::Punct(p)) if p.as_char() == ':') {
+        iter.next(); // first :
+        // Verify second `:` before consuming
+        if matches!(iter.peek(), Some(TokenTree::Punct(p)) if p.as_char() == ':') {
+            iter.next(); // second :
+        } else {
+            return false; // single `:` is not a valid path start
+        }
+    }
+    matches!(iter.next(), Some(TokenTree::Ident(id)) if id.to_string() == "derive_aliases")
 }
