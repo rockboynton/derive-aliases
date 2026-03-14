@@ -1286,8 +1286,12 @@ struct Example;{}{uses}
 }
 
 /// Inserts `#[derive(...)]` after any existing attributes but before the
-/// item keyword. Emitting the item from a proc macro (instead of directly
-/// from `macro_rules!`) ensures clippy lints and `#[expect(...)]` work.
+/// item keyword. The derive MUST be the last attribute for helper attribute
+/// name resolution to work (e.g., `#[serde(...)]` requires `#[derive(Serialize)]`
+/// to appear after `#[derive_aliases::derive]` attributes).
+///
+/// Emitting the item from a proc macro (instead of directly from
+/// `macro_rules!`) ensures clippy lints and `#[expect(...)]` work.
 #[doc(hidden)]
 #[proc_macro_attribute]
 pub fn __internal_apply_derives(attr: TokenStream, item: TokenStream) -> TokenStream {
