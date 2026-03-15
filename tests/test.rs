@@ -32,8 +32,17 @@ pub mod derive_alias {
             Everything = ::std::hash::Hash, ..Ord, ..Eq, ::core::marker::Copy, ::core::clone::Clone, ::core::default::Default;
         }
     }
+    mod bare {
+        // Test bare/relative paths (no leading ::)
+        derive_aliases::define! {
+            BareEq = PartialEq, Eq;
+            BareCopy = Copy, Clone;
+            BareHash = Hash;
+        }
+    }
 
     pub(crate) use bar::{Everything, Ord};
+    pub(crate) use bare::{BareCopy, BareEq, BareHash};
     pub use foo::*;
 }
 
@@ -51,3 +60,9 @@ assert_impls!(i [..Eq, Clone, Copy] => Eq, PartialEq, Clone, Copy);
 assert_impls!(j [Clone, Copy, ..Eq] => Eq, PartialEq, Clone, Copy);
 
 assert_impls!(m [..Eq, ..Eq] => Eq, PartialEq);
+
+// Test bare/relative paths in define!
+assert_impls!(bare_eq [..BareEq] => Eq, PartialEq);
+assert_impls!(bare_copy [..BareCopy] => Copy, Clone);
+assert_impls!(bare_mixed [..BareEq, Clone] => Eq, PartialEq, Clone);
+assert_impls!(bare_hash [..BareHash] => std::hash::Hash);

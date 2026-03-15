@@ -222,18 +222,56 @@ pub fn define(tts: TokenStream) -> TokenStream {
                 // Alias = std::hash::Hash, ..Foo;
                 //         ^^^
                 //
-                // But this is disallowed to avoid surprises!
-                Some(TokenTree::Ident(_)) => {
-                    compile_errors.push(ts.compile_error(concat!(
-                        "to avoid surprises, path to derive in alias ",
-                        "definition must be absolute - meaning it must start with `::`",
-                        "\n\nfor example, use `::std::hash::Hash` instead ",
-                        "of `std::hash::Hash` ",
-                        "and use `::core::marker::Copy` instead",
-                        " of just `Copy`",
-                    )));
-                    ts.eat_until_char(is_entity_terminator);
-                    continue 'parse_entity;
+                // Alias = Copy, ..Foo;
+                //         ^^^^
+                Some(TokenTree::Ident(first_component)) => {
+                    let mut components = Vec::new();
+
+                    while ts.peek_char(':').is_some() {
+                        let Some(separator) = ts.path_separator() else {
+                            compile_errors.push(
+                                ts.compile_error(
+                                    "expected `::` to form a path like `std::hash::Hash`",
+                                ),
+                            );
+                            ts.eat_until_char(is_entity_terminator);
+                            continue 'parse_entity;
+                        };
+
+                        let Some(component) = ts.ident() else {
+                            compile_errors.push(
+                                ts.compile_error(
+                                    "expected identifier to form a path like `std::hash::Hash`",
+                                ),
+                            );
+                            ts.eat_until_char(is_entity_terminator);
+                            continue 'parse_entity;
+                        };
+
+                        components.push((separator, component));
+                    }
+
+                    let path = Path {
+                        leading_colon: None,
+                        first_component,
+                        components,
+                    };
+
+                    match ts.tt() {
+                        Some(TokenTree::Punct(comma)) if comma == ',' => {
+                            entities.push(Entity::Derive(path));
+                            continue 'parse_entity;
+                        }
+                        Some(TokenTree::Punct(semi)) if semi == ';' => {
+                            entities.push(Entity::Derive(path));
+                            break 'parse_entity;
+                        }
+                        _ => {
+                            compile_errors.push(ts.compile_error("expected `;` or `,`"));
+                            ts.eat_until_char(is_entity_terminator);
+                            continue 'parse_entity;
+                        }
+                    }
                 }
                 // Parsing absolute path to a derive
                 //
@@ -1185,11 +1223,13 @@ fn generate_documentation_for_alias(alias: &str, expansion: &HashSet<Path>) -> S
 
     for path in expansion {
         let mut components = path.components.clone();
-        let derive = components
-            .pop()
-            .expect("Derive cannot be located at crate root")
-            .1
-            .to_string();
+
+        // Bare ident like `Copy` — no parent path, just a derive name
+        let Some((_, derive_ident)) = components.pop() else {
+            derive_contents.insert(path.first_component.to_string());
+            continue;
+        };
+        let derive = derive_ident.to_string();
 
         let first_component = path.first_component.to_string();
         let first_component = if first_component == "std" {
