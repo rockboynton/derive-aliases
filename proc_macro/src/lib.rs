@@ -24,13 +24,16 @@ derive_aliases::define! {
     Copy = ::core::marker::Copy, ::core::clone::Clone;
     Eq = ::core::cmp::Eq, ::core::cmp::PartialEq;
     Ord = ..Eq, ::core::cmp::Ord, ::core::cmp::PartialOrd;
-    StdTraits = ..Copy, ..Ord, ::core::hash::Hash, ::core::fmt::Debug;
+    StdTraits = ..Copy, ..Ord, Hash, Debug;
 }
 # }
 # fn main() {}
 ```
 
 Alias declarations end with `;`. On the left of the `=` is name of the alias, and on the right are the derives it expands to, separated by commas.
+
+Derives can be specified as bare names (`Hash`), relative paths (`serde::Serialize`), or absolute paths (`::core::marker::Copy`).
+**Note:** bare names that match an alias name in the same `define!` call will be ambiguous — use absolute paths in that case.
 
 See the [crate-level](https://docs.rs/derive_aliases/latest/derive_aliases) documentation for details"
 )]
@@ -341,7 +344,7 @@ pub fn define(tts: TokenStream) -> TokenStream {
                     }
                 }
                 _ => {
-                    compile_errors.push(ts.compile_error("expected absolute path like `::std::hash::Hash`, alias like `..Alias` or `;` signifying end of alias declaration"));
+                    compile_errors.push(ts.compile_error("expected path like `Hash`, `::std::hash::Hash`, alias like `..Alias` or `;` signifying end of alias declaration"));
                     ts.eat_until_char(is_alias_decl_terminator);
                     continue 'parse_alias_declaration;
                 }
@@ -838,7 +841,7 @@ mod derive_alias {
         Copy = ::core::marker::Copy, ::core::clone::Clone;
         Eq = ::core::cmp::Eq, ::core::cmp::PartialEq;
         Ord = ..Eq, ::core::cmp::Ord, ::core::cmp::PartialOrd;
-        StdTraits = ..Copy, ..Ord, ::core::hash::Hash, ::core::fmt::Debug;
+        StdTraits = ..Copy, ..Ord, Hash, Debug;
     }
 }
 
@@ -1144,7 +1147,7 @@ pub fn __internal_derive_aliases_new_alias_with_externs(ts: TokenStream) -> Toke
         paths.insert(
             group
                 .path()
-                .expect("inside of `[...]` has an absolute path"),
+                .expect("inside of `[...]` has a path"),
         );
 
         match ts.next() {

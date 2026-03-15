@@ -148,7 +148,7 @@
 //!     mod bar {
 //!         derive_aliases::define! {
 //!             Copy = ::core::marker::Copy, ::core::clone::Clone;
-//!             StdTraits = ..Eq, ..Ord, ..Copy, ::core::fmt::Debug, ::core::hash::Hash;
+//!             StdTraits = ..Eq, ..Ord, ..Copy, Debug, Hash;
 //!         }
 //!     }
 //!
@@ -218,13 +218,16 @@ derive_aliases::define! {
     Copy = ::core::marker::Copy, ::core::clone::Clone;
     Eq = ::core::cmp::Eq, ::core::cmp::PartialEq;
     Ord = ..Eq, ::core::cmp::Ord, ::core::cmp::PartialOrd;
-    StdTraits = ..Copy, ..Ord, ::core::hash::Hash, ::core::fmt::Debug;
+    StdTraits = ..Copy, ..Ord, Hash, Debug;
 }
 # }
 # fn main() {}
 ```
 
 Alias declarations end with `;`. On the left of the `=` is name of the alias, and on the right are the derives it expands to, separated by commas.
+
+Derives can be specified as bare names (`Hash`), relative paths (`serde::Serialize`), or absolute paths (`::core::marker::Copy`).
+**Note:** bare names that match an alias name in the same `define!` call will be ambiguous — use absolute paths in that case.
 
 See the [crate-level](crate) documentation for more info"
 )]
@@ -248,7 +251,7 @@ mod derive_alias {
         Copy = ::core::marker::Copy, ::core::clone::Clone;
         Eq = ::core::cmp::Eq, ::core::cmp::PartialEq;
         Ord = ..Eq, ::core::cmp::Ord, ::core::cmp::PartialOrd;
-        StdTraits = ..Copy, ..Ord, ::core::hash::Hash, ::core::fmt::Debug;
+        StdTraits = ..Copy, ..Ord, Hash, Debug;
     }
 }
 
