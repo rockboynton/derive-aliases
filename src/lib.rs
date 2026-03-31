@@ -217,6 +217,9 @@ pub use derive_aliases_proc_macro::derive;
 #[doc(hidden)]
 pub use derive_aliases_proc_macro::fold_attr;
 
+#[doc(hidden)]
+pub use derive_aliases_proc_macro::__internal_emit;
+
 /// This is the main macro that makes `derive_aliases` possible
 ///
 /// At a high level:
@@ -1241,8 +1244,10 @@ macro_rules! output_tokens {
             $($item:tt)*
         ]
     ) => {
-        $($attrs)*
-        $($item)*
+        $crate::__internal_emit! {
+            ($($attrs)*)
+            [$($item)*]
+        }
     };
 }
 
@@ -1260,8 +1265,10 @@ macro_rules! output_tokens {
             $($item:tt)*
         ]
     ) => {
-        $($attrs)*
-        $vis $kw $Name $($item)*
+        $crate::__internal_emit! {
+            ($($attrs)*)
+            [$vis $kw $Name $($item)*]
+        }
 
         $Name! { [$($item)*] $($attrs)* }
     };

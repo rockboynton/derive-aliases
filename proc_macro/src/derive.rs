@@ -48,13 +48,7 @@ pub fn derive(attrs_before: TokenStream, attr: TokenStream, item: TokenStream) -
                     Delimiter::Bracket,
                     [TokenTree::Group(Group::new(
                         Delimiter::Brace,
-                        TokenStream::from_iter([
-                            TokenTree::Ident(Ident::new("all", Span::call_site())),
-                            TokenTree::Group(Group::new(
-                                Delimiter::Parenthesis,
-                                TokenStream::new(),
-                            )),
-                        ]),
+                        crate::cfg_true(),
                     ))]
                     .into_iter()
                     .chain(derive.into_tokens())
