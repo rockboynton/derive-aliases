@@ -14,15 +14,18 @@ pub fn derive(attrs_before: TokenStream, attr: TokenStream, item: TokenStream) -
         mut derive_aliases,
     } = extract_derives(attr, &mut compile_errors);
 
-    let regular_derives: Vec<Vec<Path>> = vec![regular_derives];
+    // Extract #[derive(Trait)] attributes from the item and merge them into
+    // regular_derives so they go through the same alias chain and __internal_emit
+    // path. This prevents separate derive attributes (which may originate from
+    // cfg_attr evaluation by the compiler) from breaking span hygiene for derive
+    // macros like linearize::Linearize that use quote_spanned!.
+    let (extra_derive_paths, item_without_derives) = extract_derive_attrs(item);
 
-    // This currently holds the entire item.
-    //
-    // All attributes `#[attr()]` at the start of the stream will be extracted,
-    // and the non-processed ones will be placed into `other_attrs`
-    //
-    // It will be our job to put those attributes back when generating the code, before this stream
-    let item_tokens = item.into_iter().peekable();
+    let mut all_regular_derives = regular_derives;
+    all_regular_derives.extend(extra_derive_paths);
+    let regular_derives: Vec<Vec<Path>> = vec![all_regular_derives];
+
+    let item_tokens = item_without_derives.into_iter().peekable();
 
     // all the tokens for "compile_error!(...)" invocations, to be inserted
     // alongside all other input
@@ -39,23 +42,22 @@ pub fn derive(attrs_before: TokenStream, attr: TokenStream, item: TokenStream) -
         // [::core::marker::Copy] [::core::clone::Clone]
         // ^^^^^^^^^^^^^^^^^^^^^^
         //                        ^^^^^^^^^^^^^^^^^^^^^^
-        let regular_derives = regular_derives.into_iter().flat_map(|derives| {
-            derives.into_iter().map(move |derive| {
-                // crate::derive_alias::Ord! { crate::derive_alias::Eq,(crate::derive_alias::Copy,(@ [[Debug,] [::core::clone::Clone]] [struct Foo;])) [] }
-                //                                                                                    ^^^^^^^^
-                //                                                                                             ^^^^^^^^^^^^^^^^^^^^^^
-                TokenTree::Group(Group::new(
-                    Delimiter::Bracket,
-                    [TokenTree::Group(Group::new(
-                        Delimiter::Brace,
-                        crate::cfg_true(),
-                    ))]
-                    .into_iter()
-                    .chain(derive.into_tokens())
-                    .collect(),
-                ))
-            })
-        });
+        let regular_derives = regular_derives
+            .into_iter()
+            .flat_map(|derives| {
+                derives.into_iter().map(move |derive| {
+                    TokenTree::Group(Group::new(
+                        Delimiter::Bracket,
+                        [TokenTree::Group(Group::new(
+                            Delimiter::Brace,
+                            crate::cfg_true(),
+                        ))]
+                        .into_iter()
+                        .chain(derive.into_tokens())
+                        .collect(),
+                    ))
+                })
+            });
 
         let innermost_ts = TokenStream::from_iter([
             // The '@' is a symbol that tells the macro that there are derive aliases. See docs on `::derive_aliases::__internal_derive_aliases_new_alias!`
@@ -259,6 +261,100 @@ pub fn derive(attrs_before: TokenStream, attr: TokenStream, item: TokenStream) -
             ts
         }
     }
+}
+
+/// Extracts `#[derive(Trait1, Trait2, ...)]` attributes from the item's leading attributes.
+///
+/// Returns the extracted derive paths and the item with those attributes removed.
+/// This is necessary because the compiler evaluates `cfg_attr` before our proc macro runs,
+/// turning `#[cfg_attr(all(), derive(Debug))]` into `#[derive(Debug)]`. If we let those
+/// derive attributes pass through the macro_rules! alias chain, the hygiene context changes
+/// and breaks derive macros that use `quote_spanned!` (like `linearize::Linearize`).
+///
+/// By extracting them here and adding them to `regular_derives`, they go through the same
+/// `__internal_emit` → `remap_spans` path as all other derives.
+fn extract_derive_attrs(item: TokenStream) -> (Vec<Path>, TokenStream) {
+    let mut extra_derives = Vec::new();
+    let mut remaining = Vec::new();
+    let mut iter = item.into_iter().peekable();
+
+    while let Some(tt) = iter.peek() {
+        if let TokenTree::Punct(p) = tt {
+            if p.as_char() == '#' {
+                let hash = iter.next().unwrap();
+                if let Some(TokenTree::Group(bracket)) = iter.peek() {
+                    if bracket.delimiter() == Delimiter::Bracket {
+                        let bracket_tt = iter.next().unwrap();
+                        if let Some(paths) = parse_derive_attr(&bracket_tt) {
+                            extra_derives.extend(paths);
+                        } else {
+                            remaining.push(hash);
+                            remaining.push(bracket_tt);
+                        }
+                        continue;
+                    }
+                }
+                remaining.push(hash);
+                break;
+            }
+        }
+        break;
+    }
+
+    remaining.extend(iter);
+    (extra_derives, remaining.into_iter().collect())
+}
+
+/// If the bracket group is `[derive(Trait1, Trait2)]`, returns the derive paths.
+/// Also handles `[derive_aliases::derive(...)]` and `[::derive_aliases::derive(...)]`.
+/// Returns `None` for non-derive attributes.
+fn parse_derive_attr(tt: &TokenTree) -> Option<Vec<Path>> {
+    let TokenTree::Group(bracket) = tt else {
+        return None;
+    };
+    if bracket.delimiter() != Delimiter::Bracket {
+        return None;
+    }
+
+    let tokens: Vec<TokenTree> = bracket.stream().into_iter().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    // Check for `derive(...)` — a plain derive attribute
+    if let TokenTree::Ident(id) = &tokens[0] {
+        if id.to_string() == "derive" {
+            if let Some(TokenTree::Group(paren)) = tokens.get(1) {
+                if paren.delimiter() == Delimiter::Parenthesis {
+                    // Parse the derive paths using the existing path parser
+                    let mut paths = Vec::new();
+                    let mut attr_iter = TokensIter {
+                        stream: paren.stream().into_iter().peekable(),
+                        span: Span::call_site(),
+                    };
+                    while attr_iter.peek_tt().is_some() {
+                        match attr_iter.path() {
+                            Ok(path) => {
+                                paths.push(path);
+                                // consume trailing comma if present
+                                if let Some(TokenTree::Punct(p)) = attr_iter.peek_tt() {
+                                    if *p == ',' {
+                                        attr_iter.tt();
+                                    }
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    if !paths.is_empty() {
+                        return Some(paths);
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extracts derives and derive aliases from a `#[derive]` attribute.
